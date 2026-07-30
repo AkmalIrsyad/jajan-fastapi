@@ -257,7 +257,7 @@ def init_model():
         def local_to_url(val):
             if not val or pd.isna(val) or str(val).strip() in ("", "nan"):
                 return None
-            return f"https://jajan-fastapi.vercel.app/foto/foto/{os.path.basename(str(val))}"
+            return f"https://api.jajanbekasi.web.id/foto/foto/{os.path.basename(str(val))}"
 
         mask = df["photo_url"].isna() | (df["photo_url"].astype(str).isin(["", "nan", "None"]))
         df.loc[mask, "photo_url"] = df.loc[mask, "photo_local"].apply(local_to_url)
@@ -346,7 +346,7 @@ def safe_records(dataframe):
 
         if r["photo_url"] and str(r["photo_url"]).startswith(("C:\\", "D:\\", "/")):
             fname = os.path.basename(str(r["photo_url"]))
-            r["photo_url"] = f"https://jajan-fastapi.vercel.app/foto/foto/{fname}"
+            r["photo_url"] = f"https://api.jajanbekasi.web.id/foto/foto/{fname}"
 
     return records
 
