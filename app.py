@@ -704,16 +704,24 @@ def search(q: str = "", limit: int = 8, kecamatan: str = "", price: str = ""):
     # rendah / tidak nyambung sama sekali dengan keyword. Akibatnya jumlah
     # hasil terlihat "dipaksa" sampai 24 walau yang relevan cuma segelintir.
     #
-    # FIX: kalau user memasukkan keyword (has_query), buang kandidat yang
-    # cbf_score-nya di bawah ambang relevansi. Kalau cuma filter kecamatan
-    # tanpa keyword, tidak ada ambang tambahan (semua kuliner di kecamatan
-    # itu tetap relevan secara lokasi).
+    # CATATAN: cbf_score di sini bukan cosine similarity murni (skala 0-1),
+    # tapi sudah ditambah exact_boost dari rank_cbf (+3.0 kalau nama match
+    # persis dengan frasa query, +0.5/+0.3 kalau cuma nyambung sepotong
+    # kata). Makanya skalanya bisa jauh lebih besar dari 1 dan sangat
+    # bervariasi tergantung query — ambang absolut kecil (mis. 0.05) gak
+    # akan pernah menyaring apa-apa. Yang dipakai di sini adalah ambang
+    # RELATIF terhadap skor tertinggi pada hasil pencarian itu sendiri:
+    # kandidat yang skornya jauh di bawah kandidat paling relevan (mis.
+    # cuma nyambung sepotong kata generik, bukan frasa lengkap) dibuang.
     #
     # LOGIKA RANKING INTI (rank_cbf / knn_retrieve / bobot) TIDAK DIUBAH —
     # ini cuma memotong hasil yang tidak relevan sebelum head(limit).
-    RELEVANCE_THRESHOLD = 0.05
-    if has_query:
-        relevan = tmp[tmp["cbf_score"] > RELEVANCE_THRESHOLD]
+    RELATIVE_RELEVANCE_RATIO = 0.4   # min. 40% dari skor kandidat terbaik
+    ABSOLUTE_FLOOR           = 0.05  # jaga-jaga kalau semua skor kecil/rata
+    if has_query and len(tmp) > 0:
+        top_score = tmp["cbf_score"].max()
+        cutoff    = max(top_score * RELATIVE_RELEVANCE_RATIO, ABSOLUTE_FLOOR)
+        relevan   = tmp[tmp["cbf_score"] >= cutoff]
         tmp = relevan if len(relevan) > 0 else tmp.iloc[0:0]
 
     hasil = tmp.sort_values("final_score", ascending=False).head(limit)
