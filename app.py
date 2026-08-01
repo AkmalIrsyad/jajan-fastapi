@@ -170,9 +170,6 @@ KECAMATAN_MAPPING = {
 def init_model():
     global df, tfidf_matrix, vectorizer, knn_model
 
-    if df is not None:
-        return
-
     if not os.path.exists(MODEL_PATH):
         raise Exception("❌ Model belum ada! Jalankan model_training.py dulu.")
 
@@ -257,7 +254,7 @@ def init_model():
         def local_to_url(val):
             if not val or pd.isna(val) or str(val).strip() in ("", "nan"):
                 return None
-            return f"https://api.jajanbekasi.web.id/foto/foto/{os.path.basename(str(val))}"
+            return f"https://api.jajanbekasi.web.id/foto/{os.path.basename(str(val))}"
 
         mask = df["photo_url"].isna() | (df["photo_url"].astype(str).isin(["", "nan", "None"]))
         df.loc[mask, "photo_url"] = df.loc[mask, "photo_local"].apply(local_to_url)
@@ -346,7 +343,7 @@ def safe_records(dataframe):
 
         if r["photo_url"] and str(r["photo_url"]).startswith(("C:\\", "D:\\", "/")):
             fname = os.path.basename(str(r["photo_url"]))
-            r["photo_url"] = f"https://api.jajanbekasi.web.id/foto/foto/{fname}"
+            r["photo_url"] = f"https://api.jajanbekasi.web.id/foto/{fname}"
 
     return records
 
@@ -524,7 +521,6 @@ def rank_cbf(tmp, cbf_vec=None, query_text="", knn_indices=None):
 # REKOMENDASI (Chatbot — pakai KNN)
 # ===============================================================
 def rekomendasi(kategori, harga, kecamatan, limit):
-    init_model()
     tmp = df.copy()
 
     query_parts = []
@@ -559,19 +555,10 @@ def rekomendasi(kategori, harga, kecamatan, limit):
 
 
 # ===============================================================
-# API: HEALTH CHECK / PING (mencegah cold start)
-# ===============================================================
-@app.get("/ping")
-def ping():
-    return {"status": "ok", "model_loaded": df is not None}
-
-
-# ===============================================================
 # API: POPULAR
 # ===============================================================
 @app.get("/api/popular")
 def get_popular(limit: int = 8):
-    init_model()
     tmp        = df.copy()
     query_text = "enak murah nyaman halal"
     cbf_vec    = vectorizer.transform([clean(query_text)])
@@ -587,7 +574,6 @@ def get_popular(limit: int = 8):
 # ===============================================================
 @app.get("/api/popular/kategori")
 def get_popular_by_kategori(limit_per_kategori: int = 4):
-    init_model()
     KATEGORI_CBF = [
         ("Jajanan / Street Food", "jajanan street food gorengan cilok"),
         ("Cafe & Minuman",        "cafe kopi coffee minuman dessert boba aesthetic"),
@@ -639,7 +625,6 @@ def get_popular_by_kategori(limit_per_kategori: int = 4):
 # ===============================================================
 @app.get("/api/search")
 def search(q: str = "", limit: int = 8, kecamatan: str = "", price: str = ""):
-    init_model()
 
     has_query     = bool(q and q.strip())
     has_kecamatan = bool(kecamatan and kecamatan.strip() and kecamatan.lower() != "semua")
@@ -713,6 +698,24 @@ def search(q: str = "", limit: int = 8, kecamatan: str = "", price: str = ""):
     knn_idx, _ = knn_retrieve(cbf_vec, k=50)
     tmp        = rank_cbf(tmp, cbf_vec, query_text, knn_indices=knn_idx)
 
+    # ── FILTER RELEVANSI ──
+    # Sebelumnya endpoint ini selalu ambil top-N (head(limit)) dari SELURUH
+    # data yang sudah difilter kecamatan/harga, walau cbf_score-nya sangat
+    # rendah / tidak nyambung sama sekali dengan keyword. Akibatnya jumlah
+    # hasil terlihat "dipaksa" sampai 24 walau yang relevan cuma segelintir.
+    #
+    # FIX: kalau user memasukkan keyword (has_query), buang kandidat yang
+    # cbf_score-nya di bawah ambang relevansi. Kalau cuma filter kecamatan
+    # tanpa keyword, tidak ada ambang tambahan (semua kuliner di kecamatan
+    # itu tetap relevan secara lokasi).
+    #
+    # LOGIKA RANKING INTI (rank_cbf / knn_retrieve / bobot) TIDAK DIUBAH —
+    # ini cuma memotong hasil yang tidak relevan sebelum head(limit).
+    RELEVANCE_THRESHOLD = 0.05
+    if has_query:
+        relevan = tmp[tmp["cbf_score"] > RELEVANCE_THRESHOLD]
+        tmp = relevan if len(relevan) > 0 else tmp.iloc[0:0]
+
     hasil = tmp.sort_values("final_score", ascending=False).head(limit)
 
     return {
@@ -754,7 +757,6 @@ def daftar_kuliner(
     page: int = 1,
     limit: int = 40,           # default 40 per halaman
 ):
-    init_model()
     # ── Cap limit maksimal 100 per request ──
     limit = max(1, min(limit, 100))
 
@@ -832,7 +834,6 @@ def daftar_kuliner(
 # ===============================================================
 @app.get("/api/trending-kecamatan")
 def trending_kecamatan(limit_per_kecamatan: int = 6):
-    init_model()
     result = {}
 
     for kec in KECAMATAN_LIST:
@@ -895,7 +896,6 @@ def get_keywords():
 # ===============================================================
 @app.get("/api/foto")
 def get_foto(nama: str):
-    init_model()
     tmp = df.copy()
     tmp["nama_lower"] = tmp["nama"].astype(str).str.lower()
     hasil = tmp[tmp["nama_lower"].str.contains(nama.lower().strip(), na=False)]
@@ -992,7 +992,6 @@ def chat(req: ChatRequest):
         )
 
     if req.step == "free_text":
-        init_model()
         q          = clean(req.pilihan or "")
         cbf_vec    = vectorizer.transform([q])
         tmp        = df.copy()
@@ -1027,8 +1026,7 @@ def chat(req: ChatRequest):
 # ===============================================================
 @app.on_event("startup")
 async def startup_event():
-    pass
-    # init_model() dihilangkan untuk lazy loading
+    init_model()
 
 
 # ===============================================================
