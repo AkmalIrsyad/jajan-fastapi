@@ -17,6 +17,11 @@ FOTO_DIR   = os.path.join(BASE_DIR, "foto")
 
 app = FastAPI(title="JajanBekasi! API")
 
+origins = [
+    "https://jajanbekasi.web.id",
+    "https://www.jajanbekasi.web.id",
+]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
